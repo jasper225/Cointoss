@@ -24,6 +24,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+TTL_CACHE = 3600
+
 
 # ============================================================================
 # DATA COLLECTORS
@@ -38,13 +40,14 @@ class MinimalNFLCollector:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
     
-    def get_espn_scoreboard(self, season=2024, week=1):
+    @st.cache_data(ttl=TTL_CACHE, show_spinner=False)
+    def get_espn_scoreboard(_self, season=2024, week=1):
         """Get game scores from ESPN API"""
         url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
         params = {'dates': season, 'seasontype': 2, 'week': week}
         
         try:
-            response = self.session.get(url, params=params, timeout=10)
+            response = _self.session.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             
@@ -140,13 +143,14 @@ class MinimalNBACollector:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
     
-    def get_espn_scoreboard(self, season=2025):
+    @st.cache_data(ttl=TTL_CACHE, show_spinner=False)
+    def get_espn_scoreboard(_self, season=2025):
         """Get game scores from ESPN API"""
         url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
         params = {'dates': season, 'seasontype': 2}
         
         try:
-            response = self.session.get(url, params=params, timeout=10)
+            response = _self.session.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             
@@ -236,13 +240,14 @@ class MinimalMLBCollector:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
     
-    def get_espn_scoreboard(self, season=2024):
+    @st.cache_data(ttl=TTL_CACHE, show_spinner=False)
+    def get_espn_scoreboard(_self, season=2024):
         """Get game scores from ESPN API"""
         url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
         params = {'dates': season, 'seasontype': 2}
         
         try:
-            response = self.session.get(url, params=params, timeout=10)
+            response = _self.session.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             
@@ -332,13 +337,14 @@ class MinimalNHLCollector:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
     
-    def get_espn_scoreboard(self, season=2025):
+    @st.cache_data(ttl=TTL_CACHE, show_spinner=False)
+    def get_espn_scoreboard(_self, season=2025):
         """Get game scores from ESPN API"""
         url = f"https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard"
         params = {'dates': season, 'seasontype': 2}
         
         try:
-            response = self.session.get(url, params=params, timeout=10)
+            response = _self.session.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             
@@ -779,6 +785,7 @@ def show_predictor_page():
                 col1, col2, col3 = st.columns(3)
                 
                 winner_team = home_team if prediction['predicted_winner'] == 'Home' else away_team
+                st.balloons()
                 
                 with col1:
                     st.metric("Predicted Winner", winner_team)
