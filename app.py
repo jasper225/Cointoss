@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import requests
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import logging
 
@@ -144,10 +144,19 @@ class MinimalNBACollector:
         })
     
     @st.cache_data(ttl=TTL_CACHE, show_spinner=False)
-    def get_espn_scoreboard(_self, season=2025):
-        """Get game scores from ESPN API"""
+    def get_espn_scoreboard(_self, season=2025, date=None):
+        """Get game scores from ESPN API - CACHED
+        
+        Args:
+            season: Season year
+            date: Date in YYYYMMDD format (e.g., 20241115) or None for recent games
+        """
         url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
-        params = {'dates': season, 'seasontype': 2}
+        
+        if date:
+            params = {'dates': date}
+        else:
+            params = {'limit': 1000}
         
         try:
             response = _self.session.get(url, params=params, timeout=10)
@@ -190,13 +199,30 @@ class MinimalNBACollector:
     def get_season_schedule(self, season=2025, weeks=None):
         """Get full season schedule"""
         all_games = []
-        games = self.get_espn_scoreboard(season)
-        if not games.empty:
-            all_games.append(games)
-        time.sleep(0.3)
+
+        if season == 2025:
+            start_date = datetime(2024, 10, 22)
+            end_date = datetime(2025, 4, 13)
+        else:
+            start_date = datetime(season - 1, 10, 1)
+            end_date = datetime(season, 4, 30)
+        
+        current_date = start_date
+        while current_date <= end_date:
+            date_str = current_date.strftime('%Y%m%d')
+            games = self.get_espn_scoreboard(season, date=date_str)
+            if not games.empty:
+                all_games.append(games)
+            current_date += timedelta(days=1)
+            time.sleep(0.1)
+
         
         if all_games:
-            return pd.concat(all_games, ignore_index=True)
+            # combine fetched game frames, drop duplicates, log and return
+            df = pd.concat(all_games, ignore_index=True)
+            df = df.drop_duplicates(subset=['home_team', 'away_team', 'home_score', 'away_score'])
+            logger.info(f"Fetched {len(df)} unique games for season {season}")
+            return df
         return pd.DataFrame()
     
     def calculate_team_stats(self, schedule_df):
@@ -241,10 +267,18 @@ class MinimalMLBCollector:
         })
     
     @st.cache_data(ttl=TTL_CACHE, show_spinner=False)
-    def get_espn_scoreboard(_self, season=2024):
-        """Get game scores from ESPN API"""
+    def get_espn_scoreboard(_self, season=2024, date=None):
+        """Get game scores from ESPN API
+            Args:
+            season: Season year
+            date: Date in YYYYMMDD format (e.g., 20240615) or None for recent games
+        """
         url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
-        params = {'dates': season, 'seasontype': 2}
+        
+        if date:
+            params = {'dates': date}
+        else:
+            params = {'limit': 1000}
         
         try:
             response = _self.session.get(url, params=params, timeout=10)
@@ -287,13 +321,28 @@ class MinimalMLBCollector:
     def get_season_schedule(self, season=2024, weeks=None):
         """Get full season schedule"""
         all_games = []
-        games = self.get_espn_scoreboard(season)
-        if not games.empty:
-            all_games.append(games)
-        time.sleep(0.3)
+        if season == 2024:
+            start_date = datetime(2024, 3, 20)
+            end_date = datetime(2024, 10, 1)
+        else:
+            start_date = datetime(season, 3, 20)
+            end_date = datetime(season, 10, 1)
+        
+        current_date = start_date
+        while current_date <= end_date:
+            date_str = current_date.strftime('%Y%m%d')
+            games = self.get_espn_scoreboard(season, date=date_str)
+            if not games.empty:
+                all_games.append(games)
+            current_date += timedelta(days=1)
+            time.sleep(0.1)
         
         if all_games:
-            return pd.concat(all_games, ignore_index=True)
+            # combine fetched game frames, drop duplicates, log and return
+            df = pd.concat(all_games, ignore_index=True)
+            df = df.drop_duplicates(subset=['home_team', 'away_team', 'home_score', 'away_score'])
+            logger.info(f"Fetched {len(df)} unique games for season {season}")
+            return df
         return pd.DataFrame()
     
     def calculate_team_stats(self, schedule_df):
@@ -338,10 +387,18 @@ class MinimalNHLCollector:
         })
     
     @st.cache_data(ttl=TTL_CACHE, show_spinner=False)
-    def get_espn_scoreboard(_self, season=2025):
-        """Get game scores from ESPN API"""
+    def get_espn_scoreboard(_self, season=2025, date=None):
+        """Get game scores from ESPN API - CACHED
+        Args:
+            season: Season year
+            date: Date in YYYYMMDD format (e.g., 20241115) or None for recent games
+        
+        """
         url = f"https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard"
-        params = {'dates': season, 'seasontype': 2}
+        if date:
+            params = {'dates': date}
+        else:
+            params = {'limit': 1000}
         
         try:
             response = _self.session.get(url, params=params, timeout=10)
@@ -384,13 +441,29 @@ class MinimalNHLCollector:
     def get_season_schedule(self, season=2025, weeks=None):
         """Get full season schedule"""
         all_games = []
-        games = self.get_espn_scoreboard(season)
-        if not games.empty:
-            all_games.append(games)
-        time.sleep(0.3)
+        
+        if season == 2025:
+            start_date = datetime(2024, 10, 10)
+            end_date = datetime(2025, 4, 14)
+        else:
+            start_date = datetime(season - 1, 10, 1)
+            end_date = datetime(season, 4, 30)
+        
+        current_date = start_date
+        while current_date <= end_date:
+            date_str = current_date.strftime('%Y%m%d')
+            games = self.get_espn_scoreboard(season, date=date_str)
+            if not games.empty:
+                all_games.append(games)
+            current_date += timedelta(days=1)
+            time.sleep(0.1)
         
         if all_games:
-            return pd.concat(all_games, ignore_index=True)
+            # combine fetched game frames, drop duplicates, log and return
+            df = pd.concat(all_games, ignore_index=True)
+            df = df.drop_duplicates(subset=['home_team', 'away_team', 'home_score', 'away_score'])
+            logger.info(f"Fetched {len(df)} unique games for season {season}")
+            return df
         return pd.DataFrame()
     
     def calculate_team_stats(self, schedule_df):
