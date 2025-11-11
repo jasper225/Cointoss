@@ -1,6 +1,8 @@
 import streamlit as st
+import pandas as pd 
 import plotly.graph_objects as go
 import plotly.express as px
+from datetime import datetime
 from predictor import SportsPredictor
 
 # Page configuration
@@ -10,6 +12,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+TTL_CACHE = 3600
 
 
 
@@ -29,6 +33,10 @@ if 'accuracy' not in st.session_state:
     st.session_state.accuracy = None
 if 'team_stats' not in st.session_state:
     st.session_state.team_stats = None
+if 'prediction-history' not in st.session_state:
+    st.session_state.prediction_history = []
+if 'last_data_fetch' not in st.session_state:
+    st.session_state.last_data_fetch = None
 
 
 # ============================================================================
@@ -140,6 +148,18 @@ def show_predictor_page():
     # Sidebar
     with st.sidebar:
         st.header("⚙️ Model Settings")
+
+        if st.session_state.last_data_fetch:
+            time_diff = datetime.now() - st.session_state.last_data_fetch
+            minutes_ago = int(time_diff.total_seconds() // 60)
+
+            if minutes_ago < 60:
+                cache_status = f"Last data fetch: {minutes_ago} minutes ago"
+            else:
+                hours_ago = minutes_ago // 60
+                cache_status = f"Last data fetch: {hours_ago} hours ago"
+            
+            st.caption(cache_status)
         
         if league == "NFL" or league == "MLB":
             season = st.selectbox("Season", [2024, 2023], index=0)
@@ -156,42 +176,49 @@ def show_predictor_page():
         
         if st.button("🔄 Fetch Data & Train Model", type="primary", use_container_width=True):
             with st.spinner(f"Fetching {league} data..."):
-                predictor = SportsPredictor(league)
-                
-                # Collect data
-                if league == "NFL":
-                    df = predictor.collect_and_prepare_data(season=season, weeks=weeks_param)
-                else:
-                    df = predictor.collect_and_prepare_data(season=season)
-                
-                if df.empty:
-                    st.error("❌ Could not fetch data. Check your internet connection.")
-                else:
-                    st.info(f"✓ Collected {len(df)} games")
+                try:
+                    predictor = SportsPredictor(league)
                     
-                    # Train model
-                    accuracy, feature_importance = predictor.train_model(df)
+                    # Collect data
+                    if league == "NFL":
+                        df = predictor.collect_and_prepare_data(season=season, weeks=weeks_param)
+                    else:
+                        df = predictor.collect_and_prepare_data(season=season)
                     
-                    # Get team stats for predictions
-                    team_stats = predictor.collector.calculate_team_stats(df)
-                    
-                    st.session_state.predictor = predictor
-                    st.session_state.model_trained = True
-                    st.session_state.accuracy = accuracy
-                    st.session_state.team_stats = team_stats
-                    st.session_state.feature_importance = feature_importance
-                    
-                    st.success(f"✓ Model trained! Accuracy: {accuracy:.1%}")
+                    if df.empty:
+                        st.error("❌ Could not fetch data. Check your internet connection.")
+                    else:
+                        st.info(f"✓ Collected {len(df)} games")
+                        
+                        # Train model
+                        accuracy, feature_importance = predictor.train_model(df)
+                        
+                        # Get team stats for predictions
+                        team_stats = predictor.collector.calculate_team_stats(df)
+                        
+                        st.session_state.predictor = predictor
+                        st.session_state.model_trained = True
+                        st.session_state.accuracy = accuracy
+                        st.session_state.team_stats = team_stats
+                        st.session_state.feature_importance = feature_importance
+                        
+                        st.success(f"✓ Model trained! Accuracy: {accuracy:.1%}")
+                except Exception as e:
+                    st.error(f"❌ An error occurred: {e}")
         
+        st.markdown("---")
         if st.session_state.model_trained:
             st.metric("Model Accuracy", f"{st.session_state.accuracy:.1%}")
             st.info("✅ Ready for predictions")
         else:
             st.warning("⚠️ Click above to fetch data and train model")
+        if st.button("Clear Cache", type="secondary", use_container_width=True):
+            st.session_state.last_data_fetch = None
+            st.success("Cache cleared ✅")
     
     # Main content
     if st.session_state.model_trained:
-        tab1, tab2 = st.tabs(["🎯 Make Prediction", "📊 Model Insights"])
+        tab1, tab2, tab3 = st.tabs(["🎯 Make Prediction", "📊 Model Insights", "📝 Prediction History"])
         
         with tab1:
             st.header("Predict Game Outcome")
@@ -221,6 +248,45 @@ def show_predictor_page():
                     st.metric("Points Per Game", f"{away_data['points_per_game']:.1f}")
                     st.metric("Points Allowed", f"{away_data['points_allowed_per_game']:.1f}")
             
+            if home_team and away_team:
+                st.markdown("---")
+                st.subheader("⚔️Head-to-Head History")
+
+                try:
+                    predictor = st.session_state.predictor
+
+                    if league == "NFL":
+                        schedule_df = predictor.collector.get_season_schedule(season=season, weeks=range(1, 19))
+                    else:
+                        schedule_df = predictor.collector.get_season_schedule(season=season)
+                    
+                    h2h_games = schedule_df[
+                        ((schedule_df['home_team'] == home_team) & (schedule_df['away_team'] == away_team)) |
+                        ((schedule_df['home_team'] == away_team) & (schedule_df['away_team'] == home_team))
+                    ].copy()
+
+                    if not h2h_games.empty:
+                        home_h2h_wins = len(h2h_games[
+                            ((h2h_games['home_team'] == home_team) & (h2h_games['home_wins'] == 1)) |
+                            ((h2h_games['away_team'] == home_team) & (h2h_games['home_wins'] == 0))
+                        ])
+                        away_h2h_wins = len(h2h_games) - home_h2h_wins
+
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric(f"{home_team} wins", home_h2h_wins)
+                        with col2:
+                            st.metric(f"{away_team} wins", away_h2h_wins)
+                        with col3:
+                            st.metric("Total Games", len(h2h_games))
+                    else:
+                        st.info("No head-to-head games found for {home_team} and {away_team} this season.")
+
+                except Exception as e:
+                    st.error(f"❌ An error occured fetching H2H data: {e}")
+                    import logging
+                    logging.error(f"Error fetching H2H data: {e}")
+            
             if st.button("🔮 Predict Game", type="primary", use_container_width=True):
                 home_stats = {
                     'win_rate': home_data['win_rate'],
@@ -237,6 +303,17 @@ def show_predictor_page():
                 }
                 
                 prediction = st.session_state.predictor.predict_game(home_stats, away_stats)
+
+                # Log prediction to history
+                st.session_state.prediction_history.append({
+                    'timestamp': datetime.now(),
+                    'league': league,
+                    'matchup': f"{home_team} vs {away_team}",
+                    'prediction': home_team if prediction['predicted_winner'] == 'Home' else away_team,
+                    'confidence': prediction['confidence'],
+                    'home_prob': prediction['home_win_probability'],
+                    'away_prob': prediction['away_win_probability']
+                })
                 
                 st.markdown("---")
                 st.header("🎯 Prediction Results")
@@ -302,6 +379,47 @@ def show_predictor_page():
                     use_container_width=True,
                     height=400
                 )
+        
+        with tab3:
+            st.header("📝 Prediction History")
+
+            if st.session_state.prediction_history:
+                history_df = pd.DataFrame(st.session_state.prediction_history)
+                history_df['timestamp'] = pd.to_datetime(history_df['timestamp'])
+                history_df = history_df.sort_values(by='timestamp', ascending=False)
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Predictions", len(history_df))
+                with col2:
+                    avg_confidence = history_df['confidence'].mean()
+                    st.metric("Avg. Confidence", f"{avg_confidence: .1%}")
+                with col3:
+                    league_counts = history_df['league'].value_counts()
+                    top_league = league_counts.index[0] if len(league_counts) > 0 else "N/A"
+                    st.metric("Most Used", top_league)
+                
+                st.markdown("---")
+                for idx, row in history_df.iterrows():
+                    with st.expander(f"{row['matchup']} - {row['timestamp'].strftime('%Y-%m-%d %H:%M')}"):
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.write(f"**League:** {row['league']}")
+                            st.write(f"**Winner:** {row['prediction']}")
+                        with col2:
+                            st.write(f"**Confidence:** {row['confidence']:.1%}")
+                            st.write(f"**Home Win %:** {row['home_prob']:.1%}")
+                        with col3:
+                            st.write(f"**Away Win %:** {row['away_prob']:.1%}")
+                
+                st.markdown("---")
+
+                if st.button("Clear History", type="secondary", use_container_width=True):
+                    st.session_state.prediction_history = []
+                    st.success("Prediction history cleared ✅")
+                    st.rerun()
+            else:
+                st.info("No predictions made yet. Click 'Make Prediction' to get started!")
     
     else:
         st.info("👈 Click 'Fetch Data & Train Model' in the sidebar to get started!")
