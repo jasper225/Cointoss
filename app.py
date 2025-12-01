@@ -38,6 +38,162 @@ if 'prediction-history' not in st.session_state:
 if 'last_data_fetch' not in st.session_state:
     st.session_state.last_data_fetch = None
 
+# ===========================================================================
+# Helper Functions
+# ===========================================================================
+def get_team_logo_url(league, team_abbr):
+    league_codes = {
+        "NFL": "nfl",
+        "NBA": "nba",
+        "MLB": "mlb",
+        "NHL": "nhl"
+    }
+
+    team_ids = {
+        'NFL': {
+            'ARI': 22, 'ATL': 1, 'BAL': 33, 'BUF': 2, 'CAR': 29, 'CHI': 3, 'CIN': 4,
+            'CLE': 5, 'DAL': 6, 'DEN': 7, 'DET': 8, 'GB': 9, 'HOU': 34, 'IND': 11,
+            'JAX': 30, 'KC': 12, 'LAC': 28, 'LAR': 23, 'LV': 40, 'MIA': 14, 'MIN': 15,
+            'NE': 16, 'NO': 17, 'NYG': 18, 'NYJ': 19, 'PHI': 20, 'PIT': 21,
+            'SF': 24, 'SEA': 25, 'TB': 26, 'TEN': 27, 'WAS': 10
+            },
+        'NBA': {
+            'ATL': 1, 'BOS': 2, 'BKN': 17, 'CHA': 30, 'CHI': 4, 'CLE': 5,
+            'DAL': 6, 'DEN': 7, 'DET': 8, 'GS': 9, 'HOU': 10, 'IND': 11,
+            'LAC': 12, 'LAL': 13, 'MEM': 29, 'MIA': 14, 'MIL': 15, 'MIN': 16,
+            'NO': 3, 'NY': 18, 'OKC': 25, 'ORL': 19, 'PHI': 20, 'PHX': 21,
+            'POR': 22, 'SAC': 23, 'SA': 24, 'TOR': 28, 'UTA': 26, 'WAS': 27
+        },
+        'MLB': {
+            'ARI': 29, 'ATL': 15, 'BAL': 1, 'BOS': 2, 'CHC': 16, 'CWS': 4,
+            'CIN': 17, 'CLE': 5, 'COL': 27, 'DET': 6, 'HOU': 18, 'KC': 7,
+            'LAA': 3, 'LAD': 19, 'MIA': 28, 'MIL': 8, 'MIN': 9, 'NYM': 21,
+            'NYY': 10, 'OAK': 11, 'PHI': 22, 'PIT': 23, 'SD': 25, 'SEA': 12,
+            'SF': 26, 'STL': 24, 'TB': 30, 'TEX': 13, 'TOR': 14, 'WSH': 20
+            },
+        'NHL': {
+            'ANA': 24, 'ARI': 53, 'BOS': 6, 'BUF': 7, 'CGY': 20, 'CAR': 12,
+            'CHI': 16, 'COL': 21, 'CBJ': 29, 'DAL': 25, 'DET': 17, 'EDM': 22,
+            'FLA': 13, 'LA': 26, 'MIN': 30, 'MTL': 8, 'NSH': 18, 'NJ': 1,
+            'NYI': 2, 'NYR': 3, 'OTT': 9, 'PHI': 4, 'PIT': 5, 'SJ': 28,
+            'SEA': 55, 'STL': 19, 'TB': 14, 'TOR': 10, 'VAN': 23, 'VGK': 54,
+            'WPG': 52, 'WSH': 15
+            }
+        }
+    league_code = league_codes.get(league)
+    team_id = team_ids.get(league, {}).get(team_abbr, 0)
+
+    if team_id == 0:
+        return f"https://a.espncdn.com/combiner/i?img=/i/teamlogos/{league_code}/500/scoreboard/{team_abbr}.png&h=100&w=100"
+     
+    return f"https://a.espncdn.com/combiner/i?img=/i/teamlogos/{league_code}/500/{team_id}.png&h=100&w=100"
+
+def display_team_header(league, team_abbr, label="Team"):
+    logo_url = get_team_logo_url(league, team_abbr)
+
+    html = f"""
+    <div style="display: flex; align-items: center; margin-bottom: 1rem;">
+        <img src="{logo_url}" alt="{team_abbr} Logo" style="width: 50px; height: 50px; margin-right: 1rem;">
+        <span style="font-size: 1.5rem; font-weight: bold;">{label}: {team_abbr}</span>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+def calculate_streak(team, predictor, season, league):
+    try:
+        if league == "NFL":
+            schedule = predictor.collector.get_season_schedule(season)
+        else:
+            schedule = predictor.collector.get_season_schedule(season)
+        
+        # Get all games for this team
+        team_games = schedule[
+            (schedule['home_team'] == team) | (schedule['away_team'] == team)
+        ].copy()
+        
+        if team_games.empty:
+            return {'type': 'none', 'count': 0}
+        
+        # Sort by week/date if available
+        if 'week' in team_games.columns:
+            team_games = team_games.sort_values('week', ascending=False)
+        
+        # Determine if team won each game
+        team_games['team_won'] = team_games.apply(
+            lambda row: (row['home_team'] == team and row['home_wins'] == 1) or
+                       (row['away_team'] == team and row['home_wins'] == 0),
+            axis=1
+        )
+        
+        # Count current streak
+        streak_count = 0
+        streak_type = None
+        
+        for won in team_games['team_won']:
+            if streak_type is None:
+                streak_type = 'win' if won else 'loss'
+                streak_count = 1
+            elif (streak_type == 'win' and won) or (streak_type == 'loss' and not won):
+                streak_count += 1
+            else:
+                break
+        
+        return {'type': streak_type, 'count': streak_count}
+    
+    except Exception as e:
+        return {'type': 'none', 'count': 0}
+
+
+def get_last_n_games(team, predictor, season, league, n=5):
+    try:
+        if league == "NFL":
+            schedule = predictor.collector.get_season_schedule(season)
+        else:
+            schedule = predictor.collector.get_season_schedule(season)
+        
+        # Get all games for this team
+        team_games = schedule[
+            (schedule['home_team'] == team) | (schedule['away_team'] == team)
+        ].copy()
+        
+        if team_games.empty:
+            return pd.DataFrame()
+        
+        # Sort by week/date
+        if 'week' in team_games.columns:
+            team_games = team_games.sort_values('week', ascending=False)
+        
+        return team_games.head(n)
+    
+    except Exception as e:
+        return pd.DataFrame()
+
+
+def display_game_result(game, team):
+    """Display a single game result"""
+    home = game['home_team']
+    away = game['away_team']
+    home_score = game['home_score']
+    away_score = game['away_score']
+    
+    # Determine if team won
+    if team == home:
+        won = game['home_wins'] == 1
+        opponent = away
+        result = f"{home_score}-{away_score}"
+    else:
+        won = game['home_wins'] == 0
+        opponent = home
+        result = f"{away_score}-{home_score}"
+    
+    # Format display
+    if won:
+        st.markdown(f"✅ **W** vs {opponent} ({result})")
+    else:
+        st.markdown(f"❌ **L** vs {opponent} ({result})")
+
+    
+
 
 # ============================================================================
 # HOME PAGE
